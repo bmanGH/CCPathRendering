@@ -298,7 +298,7 @@ unsigned int nvgTransRGBA(unsigned int c, unsigned char a)
 
 unsigned int nvgLerpRGBA(unsigned int c0, unsigned int c1, float u)
 {
-	int iu = (float)(nvg__clampf(u, 0.0f, 1.0f) * 256.0f);
+	int iu = (int)(nvg__clampf(u, 0.0f, 1.0f) * 256.0f);
 	int r = (((c0) & 0xff)*(256-iu) + (((c1) & 0xff)*iu)) >> 8;
 	int g = (((c0>>8) & 0xff)*(256-iu) + (((c1>>8) & 0xff)*iu)) >> 8;
 	int b = (((c0>>16) & 0xff)*(256-iu) + (((c1>>16) & 0xff)*iu)) >> 8;
@@ -987,7 +987,7 @@ static void nvg__flattenPaths(struct NVGcontext* ctx)
 	struct NVGpoint* p1;
 	struct NVGpoint* pts;
 	struct NVGpath* path;
-	int i, j, nleft;
+	int i, j;
 	float* cp1;
 	float* cp2;
 	float* p;
@@ -1084,13 +1084,13 @@ static int nvg__curveDivs(float r, float arc, float tol)
 }
 
 static void nvg__chooseBevel(int bevel, struct NVGpoint* p0, struct NVGpoint* p1, float w,
-							float* x0, float* y0, float* x1, float* y1, float fringe)
+							float* x0, float* y0, float* x1, float* y1)
 {
 	if (bevel) {
-		*x0 = p1->x + p0->dy * w + p0->dx * fringe;
-		*y0 = p1->y - p0->dx * w + p0->dy * fringe;
-		*x1 = p1->x + p1->dy * w - p1->dx * fringe;
-		*y1 = p1->y - p1->dx * w - p1->dy * fringe;
+		*x0 = p1->x + p0->dy * w;
+		*y0 = p1->y - p0->dx * w;
+		*x1 = p1->x + p1->dy * w;
+		*y1 = p1->y - p1->dx * w;
 	} else {
 		*x0 = p1->x + p1->dmx * w;
 		*y0 = p1->y + p1->dmy * w;
@@ -1110,7 +1110,7 @@ static struct NVGvertex* nvg__roundJoin(struct NVGvertex* dst, struct NVGpoint* 
 
 	if (p1->flags & NVG_PT_LEFT) {
 		float lx0,ly0,lx1,ly1,a0,a1;
-		nvg__chooseBevel(p1->flags & NVG_PR_INNERBEVEL, p0, p1, lw, &lx0,&ly0, &lx1,&ly1, -fringe);
+		nvg__chooseBevel(p1->flags & NVG_PR_INNERBEVEL, p0, p1, lw, &lx0,&ly0, &lx1,&ly1);
 		a0 = atan2f(-dly0, -dlx0);
 		a1 = atan2f(-dly1, -dlx1);
 		if (a1 > a0) a1 -= NVG_PI*2;
@@ -1133,7 +1133,7 @@ static struct NVGvertex* nvg__roundJoin(struct NVGvertex* dst, struct NVGpoint* 
 
 	} else {
 		float rx0,ry0,rx1,ry1,a0,a1;
-		nvg__chooseBevel(p1->flags & NVG_PR_INNERBEVEL, p0, p1, -rw, &rx0,&ry0, &rx1,&ry1, -fringe);
+		nvg__chooseBevel(p1->flags & NVG_PR_INNERBEVEL, p0, p1, -rw, &rx0,&ry0, &rx1,&ry1);
 		a0 = atan2f(dly0, dlx0);
 		a1 = atan2f(dly1, dlx1);
 		if (a1 < a0) a1 += NVG_PI*2;
@@ -1161,48 +1161,84 @@ static struct NVGvertex* nvg__roundJoin(struct NVGvertex* dst, struct NVGpoint* 
 static struct NVGvertex* nvg__bevelJoin(struct NVGvertex* dst, struct NVGpoint* p0, struct NVGpoint* p1,
 										float lw, float rw, float lu, float ru, float fringe)
 {
-	int left = 0, right = 0;
-	float dot, rf, lf;
 	float rx0,ry0,rx1,ry1;
 	float lx0,ly0,lx1,ly1;
+	float mx,my,len,mu;
+	float dlx0 = p0->dy;
+	float dly0 = -p0->dx;
+	float dlx1 = p1->dy;
+	float dly1 = -p1->dx;
 
 	if (p1->flags & NVG_PT_LEFT) {
-		left = p1->flags & NVG_PR_INNERBEVEL;
-		right = p1->flags & NVG_PT_BEVEL;
-		lf = 0;
-		rf = fringe;
-	} else {		
-		left = p1->flags & NVG_PT_BEVEL;
-		right = p1->flags & NVG_PR_INNERBEVEL;
-		lf = fringe;
-		rf = 0;
-	}
+		nvg__chooseBevel(p1->flags & NVG_PR_INNERBEVEL, p0, p1, lw, &lx0,&ly0, &lx1,&ly1);
 
-	nvg__chooseBevel(left, p0, p1, lw, &lx0,&ly0, &lx1,&ly1, lf);
-	nvg__chooseBevel(right, p0, p1, -rw, &rx0,&ry0, &rx1,&ry1, rf);
+		nvg__vset(dst, lx0, ly0, lu,1); dst++;
+		nvg__vset(dst, p1->x - dlx0*rw, p1->y - dly0*rw, ru,1); dst++;
 
-	dot = p0->dx*p1->dx + p0->dy*p1->dy;
-	dot = (1.0f - dot) * 0.5f;
+		if (p1->flags & NVG_PT_BEVEL) {
+			// TODO: this needs more work.
+			mx = (dlx0 + dlx1) * 0.5f;
+			my = (dly0 + dly1) * 0.5f;
+			len = sqrtf(mx*mx + my*my);
+			mu = ru + len*(lu-ru)*0.5f;
 
-	nvg__vset(dst, lx0, ly0, lu,1); dst++;
-	nvg__vset(dst, rx0, ry0, ru,1); dst++;
+			nvg__vset(dst, lx0, ly0, lu,1); dst++;
+			nvg__vset(dst, p1->x - dlx0*rw, p1->y - dly0*rw, ru,1); dst++;
 
-	if (p1->flags & NVG_PR_INNERBEVEL) {
-		if (p1->flags & NVG_PT_LEFT) {
+			nvg__vset(dst, lx1, ly1, lu,1); dst++;
+			nvg__vset(dst, p1->x - dlx1*rw, p1->y - dly1*rw, ru,1); dst++;
+		} else {
+			rx0 = p1->x - p1->dmx * rw;
+			ry0 = p1->y - p1->dmy * rw;
+
 			nvg__vset(dst, p1->x, p1->y, 0.5f,1); dst++;
+			nvg__vset(dst, p1->x - dlx0*rw, p1->y - dly0*rw, ru,1); dst++;
+
 			nvg__vset(dst, rx0, ry0, ru,1); dst++;
+			nvg__vset(dst, rx0, ry0, ru,1); dst++;
+
 			nvg__vset(dst, p1->x, p1->y, 0.5f,1); dst++;
+			nvg__vset(dst, p1->x - dlx1*rw, p1->y - dly1*rw, ru,1); dst++;
+		}
+
+		nvg__vset(dst, lx1, ly1, lu,1); dst++;
+		nvg__vset(dst, p1->x - dlx1*rw, p1->y - dly1*rw, ru,1); dst++;
+
+	} else {
+		nvg__chooseBevel(p1->flags & NVG_PR_INNERBEVEL, p0, p1, -rw, &rx0,&ry0, &rx1,&ry1);
+
+		nvg__vset(dst, p1->x + dlx0*lw, p1->y + dly0*lw, lu,1); dst++;
+		nvg__vset(dst, rx0, ry0, ru,1); dst++;
+
+		if (p1->flags & NVG_PT_BEVEL) {
+			// TODO: this needs more work.
+			mx = (dlx0 + dlx1) * 0.5f;
+			my = (dly0 + dly1) * 0.5f;
+			len = sqrtf(mx*mx + my*my);
+			mu = lu + len*(ru-lu)*0.5f;
+
+			nvg__vset(dst, p1->x + dlx0*lw, p1->y + dly0*lw, lu,1); dst++;
+			nvg__vset(dst, rx0, ry0, ru,1); dst++;
+
+			nvg__vset(dst, p1->x + dlx1*lw, p1->y + dly1*lw, lu,1); dst++;
 			nvg__vset(dst, rx1, ry1, ru,1); dst++;
 		} else {
-			nvg__vset(dst, lx0, ly0, lu,1); dst++;
+			lx0 = p1->x + p1->dmx * lw;
+			ly0 = p1->y + p1->dmy * lw;
+
+			nvg__vset(dst, p1->x + dlx0*lw, p1->y + dly0*lw, lu,1); dst++;
 			nvg__vset(dst, p1->x, p1->y, 0.5f,1); dst++;
-			nvg__vset(dst, lx1, ly1, lu,1); dst++;
+
+			nvg__vset(dst, lx0, ly0, lu,1); dst++;
+			nvg__vset(dst, lx0, ly0, lu,1); dst++;
+
+			nvg__vset(dst, p1->x + dlx1*lw, p1->y + dly1*lw, lu,1); dst++;
 			nvg__vset(dst, p1->x, p1->y, 0.5f,1); dst++;
 		}
-	}
 
-	nvg__vset(dst, lx1, ly1, lu,1); dst++;
-	nvg__vset(dst, rx1, ry1, ru,1); dst++;
+		nvg__vset(dst, p1->x + dlx1*rw, p1->y + dly1*rw, lu,1); dst++;
+		nvg__vset(dst, rx1, ry1, ru,1); dst++;
+	}
 
 	return dst;
 }
@@ -1217,7 +1253,7 @@ static int nvg__expandStrokeAndFill(struct NVGcontext* ctx, int feats, float w, 
 	struct NVGpoint* p0;
 	struct NVGpoint* p1;
 	int cverts, convex, i, j, s, e;
-	float wo = 0, iw, aa = ctx->fringeWidth;
+	float wo = 0, iw = 0, aa = ctx->fringeWidth;
 	int ncap = nvg__curveDivs(w, NVG_PI, ctx->tessTol / 4.0f);
 	int nleft = 0;
 	struct NVGstate* state = nvg__getState(ctx);
@@ -1294,7 +1330,7 @@ static int nvg__expandStrokeAndFill(struct NVGcontext* ctx, int feats, float w, 
 			if (lineCap == NVG_ROUND)
 				cverts += (path->count + path->nbevel*(ncap+2) + 1) * 2; // plus one for loop
 			else
-				cverts += (path->count + path->nbevel*3 + 1) * 2; // plus one for loop
+				cverts += (path->count + path->nbevel*5 + 1) * 2; // plus one for loop
 			if (loop == 0) {
 				// space for caps
 				if (lineCap == NVG_ROUND) {
@@ -1589,9 +1625,9 @@ void nvgPathWinding(struct NVGcontext* ctx, int dir)
 
 void nvgArc(struct NVGcontext* ctx, float cx, float cy, float r, float a0, float a1, int dir)
 {
-	float a, da, hda, kappa;
-	float dx, dy, x, y, tanx, tany;
-	float px, py, ptanx, ptany;
+	float a = 0, da = 0, hda = 0, kappa = 0;
+	float dx = 0, dy = 0, x = 0, y = 0, tanx = 0, tany = 0;
+	float px = 0, py = 0, ptanx = 0, ptany = 0;
 	float vals[3 + 5*7 + 100];
 	int i, ndivs, nvals;
 	int move = ctx->ncommands > 0 ? NVG_LINETO : NVG_MOVETO; 
@@ -1631,7 +1667,7 @@ void nvgArc(struct NVGcontext* ctx, float cx, float cy, float r, float a0, float
 		tany = dx*r*kappa;
 
 		if (i == 0) {
-			vals[nvals++] = move;
+			vals[nvals++] = (float)move;
 			vals[nvals++] = x;
 			vals[nvals++] = y;
 		} else {
