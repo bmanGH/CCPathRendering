@@ -157,7 +157,7 @@ void GraphicsNode::draw (Renderer* renderer, const kmMat4 &transform, bool trans
 //    if (_insideBounds) {
         _customRenderCommand.init(_globalZOrder);
         _customRenderCommand.func = CC_CALLBACK_0(GraphicsNode::render, this);
-        Director::getInstance()->getRenderer()->addCommand(&_customRenderCommand);
+        renderer->addCommand(&_customRenderCommand);
 //    }
 }
 
